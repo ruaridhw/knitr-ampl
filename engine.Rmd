@@ -1,0 +1,70 @@
+--- 
+title: "Example Rmd for using the AMPL engine"
+author: "Ruaridh Williamson"
+---
+
+First, set environment variables for each of the engine parameters.
+
+Due to OptiRisk's annoying license manager, the system command
+has to be invoked from the directory which contains the AMPL license.
+
+Current workaround is to temporarily change the `knitr` working directory
+to run the code before switching back to the default.
+
+- `AMPL_EXE_DIR`: The directory which contains the `LICENSE.KEY` file
+- `AMPL_EXE`: The AMPL executable relative to `AMPL_EXE_DIR`
+- `SOLVER_EXE`: The solver executable relative to `AMPL_EXE_DIR`
+
+```{r set_ampl_env, include=FALSE}
+Sys.setenv(AMPL_EXE_DIR = "/Applications/AMPLDev.app/Contents/Resources",
+           AMPL_EXE = "AMPL/ampl",
+           SOLVER_EXE = "AMPL/cplex")
+```
+
+```{r}
+# Define `ampl` engine based on knitr's already-defined `go` engine
+knitr::knit_engines$set(ampl = function (options) {
+  f = tempfile("code", ".", fileext = ".run")
+  writeLines(code <- options$code, f)
+  
+  # Use absolute path so that the file can be found
+  # after directory change
+  f = normalizePath(f)
+  on.exit(unlink(f), add = TRUE)
+  
+  # Change working directory and move back after code
+  # chunk is complete
+  cur_dir <- getwd()
+  setwd(Sys.getenv("AMPL_EXE_DIR"))
+  on.exit(setwd(cur_dir), add = TRUE)
+  
+  cmd = Sys.getenv("AMPL_EXE")
+  fmt_args = sprintf("'%s'", f)
+  tryCatch(system2(cmd, fmt_args, stdout = TRUE, stderr = TRUE, 
+      env = options$engine.env), error = function(e) {
+      if (!options$error) 
+          stop(e)
+  })
+  run_args = sprintf("'%s'", f)
+  extra = if (options$eval) {
+      message("running: ", cmd, run_args)
+      tryCatch(system2(cmd, run_args, stdout = TRUE, stderr = TRUE, 
+          env = options$engine.env), error = function(e) {
+          if (!options$error) 
+              stop(e)
+          "Error in executing ampl code"
+      })
+  }
+  if (options$results == "hide") 
+      extra = NULL
+  knitr:::engine_output(options, code, extra)
+})
+```
+
+```{ampl}
+model '/Users/username/path_to_model/model.mod';
+data '/Users/username/path_to_model/data.dat';
+
+option solver '$SOLVER_EXE';
+solve;
+```
